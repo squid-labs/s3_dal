@@ -104,7 +104,7 @@ func TestAppendAndReadSingle(t *testing.T) {
 	ctx := context.Background()
 	testData := []byte("hello world")
 
-	offset, err := wal.Append(ctx, testData)
+	offset, err := wal.Append(ctx, testData, uint64(1048576))
 	if err != nil {
 		t.Fatalf("failed to append: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestAppendMultiple(t *testing.T) {
 
 	var offsets []uint64
 	for _, data := range testData {
-		offset, err := wal.Append(ctx, data)
+		offset, err := wal.Append(ctx, data, uint64(1048576))
 		if err != nil {
 			t.Fatalf("failed to append: %v", err)
 		}
@@ -179,7 +179,7 @@ func TestAppendEmpty(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	offset, err := wal.Append(ctx, []byte{})
+	offset, err := wal.Append(ctx, []byte{}, uint64(1048576))
 	if err != nil {
 		t.Fatalf("failed to append empty data: %v", err)
 	}
@@ -204,7 +204,7 @@ func TestAppendLarge(t *testing.T) {
 		largeData[i] = byte(i % 256)
 	}
 
-	offset, err := wal.Append(ctx, largeData)
+	offset, err := wal.Append(ctx, largeData, uint64(1048576))
 	if err != nil {
 		t.Fatalf("failed to append large data: %v", err)
 	}
@@ -234,14 +234,14 @@ func TestSameOffset(t *testing.T) {
 	ctx := context.Background()
 	// https://x.com/iavins/status/1860299083056849098
 	data := []byte("threads are evil")
-	_, err := wal.Append(ctx, data)
+	_, err := wal.Append(ctx, data, uint64(1048576))
 	if err != nil {
 		t.Fatalf("failed to append first record: %v", err)
 	}
 
 	// reset the WAL counter so that it uses the same offset
 	wal.length = 0
-	_, err = wal.Append(ctx, data)
+	_, err = wal.Append(ctx, data, uint64(1048576))
 	if err == nil {
 		t.Error("expected error when appending at same offset, got nil")
 	}
@@ -260,7 +260,7 @@ func TestLastRecord(t *testing.T) {
 	var lastData []byte
 	for i := 0; i < 80; i++ {
 		lastData = []byte(generateRandomStr())
-		_, err = wal.Append(ctx, lastData)
+		_, err = wal.Append(ctx, lastData, uint64(1048576))
 		if err != nil {
 			t.Fatalf("failed to append record: %v", err)
 		}

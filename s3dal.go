@@ -92,9 +92,17 @@ func prepareBody(offset uint64, data []byte) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func (w *S3DAL) Append(ctx context.Context, data []byte) (uint64, error) {
+func (w *S3DAL) Append(ctx context.Context, data []byte, fileSizeLimit uint64) (uint64, error) {
+	// Check if adding the new data will exceed the allowed file size
+	newDataSize := uint64(len(data))
+	if w.length+newDataSize > fileSizeLimit {
+		return 0, fmt.Errorf("appending data would exceed the file size limit of %d bytes", fileSizeLimit)
+	}
+
+	// Calculate the next offset
 	nextOffset := w.length + 1
 
+	// Prepare the body for upload
 	buf, err := prepareBody(nextOffset, data)
 	if err != nil {
 		return 0, fmt.Errorf("failed to prepare object body: %w", err)
@@ -107,9 +115,12 @@ func (w *S3DAL) Append(ctx context.Context, data []byte) (uint64, error) {
 		IfNoneMatch: aws.String("*"),
 	}
 
+	// Attempt to write the data to S3
 	if _, err = w.client.PutObject(ctx, input); err != nil {
 		return 0, fmt.Errorf("failed to put object to S3: %w", err)
 	}
+
+	// Update the current length
 	w.length = nextOffset
 	return nextOffset, nil
 }
@@ -152,6 +163,43 @@ func (w *S3DAL) Read(ctx context.Context, offset uint64) (Record, error) {
 }
 
 func (w *S3DAL) LastRecord(ctx context.Context) (Record, error) {
+	// Set up the input for listing objects with reversed order
+	input := &s3.ListObjectsV2Input{
+		Bucket: aws.String(w.bucketName),
+		Prefix: aws.String(w.prefix + "/"),
+	}
+
+	// Initialize paginator
+	paginator := s3.NewListObjectsV2Paginator(w.client, input)
+
+	var lastKey string
+	for paginator.HasMorePages() {
+		output, err := paginator.NextPage(ctx)
+		if err != nil {
+			return Record{}, fmt.Errorf("failed to list objects from S3: %w", err)
+		}
+
+		// Get the last key in this page (keys are lexicographically sorted)
+		if len(output.Contents) > 0 {
+			lastKey = *output.Contents[len(output.Contents)-1].Key
+		}
+	}
+
+	if lastKey == "" {
+		return Record{}, fmt.Errorf("WAL is empty")
+	}
+
+	// Extract the offset from the last key
+	maxOffset, err := w.getOffsetFromKey(lastKey)
+	if err != nil {
+		return Record{}, fmt.Errorf("failed to parse offset from key: %w", err)
+	}
+
+	w.length = maxOffset
+	return w.Read(ctx, maxOffset)
+}
+
+/* func (w *S3DAL) LastRecord(ctx context.Context) (Record, error) {
 	input := &s3.ListObjectsV2Input{
 		Bucket: aws.String(w.bucketName),
 		Prefix: aws.String(w.prefix + "/"),
@@ -180,4 +228,4 @@ func (w *S3DAL) LastRecord(ctx context.Context) (Record, error) {
 	}
 	w.length = maxOffset
 	return w.Read(ctx, maxOffset)
-}
+} */
