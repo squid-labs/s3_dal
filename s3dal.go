@@ -10,6 +10,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/scritchley/orc"
 )
 
 type S3DAL struct {
@@ -75,6 +76,32 @@ func validateChecksum(data []byte) bool {
 	return storedCRC == calculatedCRC
 }
 
+func convertToOrc(data []map[string]interface{}) ([]byte, error) {
+	// Create a buffer to store the ORC file
+	var buf bytes.Buffer
+
+	// Create a new ORC writer
+	writer, err := orc.NewWriter(&buf)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create ORC writer: %w", err)
+	}
+
+	// Write each row to the ORC file
+	for _, row := range data {
+		if err := writer.Write(row); err != nil {
+			return nil, fmt.Errorf("failed to write data to ORC: %w", err)
+		}
+	}
+
+	// Close the writer to finalize the ORC file
+	if err := writer.Close(); err != nil {
+		return nil, fmt.Errorf("failed to close ORC writer: %w", err)
+	}
+
+	// Return the ORC-encoded data
+	return buf.Bytes(), nil
+}
+
 func prepareBody(offset uint64, data []byte) ([]byte, error) {
 	// 8 bytes for offset, len(data) bytes for data, 2 bytes for CRC16
 	bufferLen := 8 + len(data) + 2
@@ -89,6 +116,38 @@ func prepareBody(offset uint64, data []byte) ([]byte, error) {
 	if err := binary.Write(buf, binary.BigEndian, crc); err != nil {
 		return nil, err
 	}
+	return buf.Bytes(), nil
+}
+
+func prepareBodyOrc(offset uint64, data []map[string]interface{}) ([]byte, error) {
+	// Convert data to ORC format
+	orcData, err := convertToOrc(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert data to ORC format: %w", err)
+	}
+
+	// Calculate buffer length: 8 bytes for offset, len(orcData) bytes for ORC data, 2 bytes for CRC16
+	bufferLen := 8 + len(orcData) + 2
+	buf := bytes.NewBuffer(make([]byte, 0, bufferLen))
+
+	// Write the offset to the buffer
+	if err := binary.Write(buf, binary.BigEndian, offset); err != nil {
+		return nil, fmt.Errorf("failed to write offset: %w", err)
+	}
+
+	// Write the ORC data to the buffer
+	if _, err := buf.Write(orcData); err != nil {
+		return nil, fmt.Errorf("failed to write ORC data: %w", err)
+	}
+
+	// Compute CRC16 checksum (use your CRC implementation here)
+	crc := crc16Fast(buf.Bytes()) // Exclude space for CRC during calculation
+
+	// Write the CRC to the buffer
+	if err := binary.Write(buf, binary.BigEndian, crc); err != nil {
+		return nil, fmt.Errorf("failed to write CRC: %w", err)
+	}
+
 	return buf.Bytes(), nil
 }
 

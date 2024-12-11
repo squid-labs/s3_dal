@@ -232,7 +232,6 @@ func TestSameOffset(t *testing.T) {
 	wal, cleanup := getS3DAL(t)
 	defer cleanup()
 	ctx := context.Background()
-	// https://x.com/iavins/status/1860299083056849098
 	data := []byte("threads are evil")
 	_, err := wal.Append(ctx, data, uint64(1048576))
 	if err != nil {
